@@ -15,32 +15,26 @@ echo $OUTPUT->header();
 
 echo html_writer::link(
     new moodle_url('/local/autoteacher/start.php'),
-    get_string('startquiz', 'local_autoteacher'),
+    'Start a new diagnostic test',
     ['class' => 'btn btn-primary mb-3']
 );
 
-$quizzes = $DB->get_records('local_autoteacher_quiz', ['userid' => $USER->id], 'timecreated DESC');
+$sessions = $DB->get_records('local_autoteacher_session', ['userid' => $USER->id], 'timecreated DESC');
 
-if (!$quizzes) {
+if (!$sessions) {
     echo $OUTPUT->notification(get_string('nomyquizzes', 'local_autoteacher'), 'info');
 } else {
     $table = new html_table();
-    $table->head = [
-        get_string('subject', 'local_autoteacher'),
-        get_string('status', 'local_autoteacher'),
-        get_string('grade', 'local_autoteacher'),
-        '',
-    ];
-    foreach ($quizzes as $q) {
-        $answered = ($q->chosenindex !== null);
-        $status   = $answered ? get_string('answered', 'local_autoteacher')
-                              : get_string('pending', 'local_autoteacher');
-        $grade    = $answered ? ($q->iscorrect ? '1 / 1' : '0 / 1') : '-';
+    $table->head = ['Topic', 'Level', 'Status', 'Score', ''];
+    foreach ($sessions as $s) {
+        $answered = ($s->answers !== null);
+        $status   = $answered ? 'Completed' : 'Pending';
+        $score    = $answered ? "{$s->score} / 3" : '-';
         $action   = html_writer::link(
-            new moodle_url('/local/autoteacher/take.php', ['id' => $q->id]),
-            $answered ? get_string('youranswer', 'local_autoteacher') : get_string('chooseanswer', 'local_autoteacher')
+            new moodle_url('/local/autoteacher/take.php', ['id' => $s->id]),
+            $answered ? 'Review Answers' : 'Take Test'
         );
-        $table->data[] = [format_string($q->subject), $status, $grade, $action];
+        $table->data[] = [format_string($s->subject), ucfirst($s->level), $status, $score, $action];
     }
     echo html_writer::table($table);
 }

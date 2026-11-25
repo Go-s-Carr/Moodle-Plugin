@@ -15,19 +15,22 @@ $PAGE->set_heading(get_string('pluginname', 'local_autoteacher'));
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_sesskey();
     $subject = trim(required_param('subject', PARAM_TEXT));
+    $level   = required_param('level', PARAM_TEXT);
+    $goal    = required_param('goal', PARAM_TEXT);
+
     if ($subject === '') {
         redirect(new moodle_url('/local/autoteacher/start.php'));
     }
 
-    $q = local_autoteacher_generate_question($subject);
+    // Generate the array of 3 questions
+    $questions = local_autoteacher_generate_test($subject, $level, $goal);
 
-    $id = $DB->insert_record('local_autoteacher_quiz', (object) [
+    $id = $DB->insert_record('local_autoteacher_session', (object) [
         'userid'       => $USER->id,
         'subject'      => $subject,
-        'questiontext' => $q['question'],
-        'options'      => json_encode($q['options']),
-        'correctindex' => $q['correct_index'],
-        'explanation'  => $q['explanation'],
+        'level'        => $level,
+        'goal'         => $goal,
+        'questions'    => json_encode($questions),
         'timecreated'  => time(),
     ]);
 
@@ -42,17 +45,38 @@ echo html_writer::start_tag('form', [
 ]);
 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
 
+// Subject Input
 echo html_writer::start_div('form-group mb-3');
-echo html_writer::tag('label', get_string('subject', 'local_autoteacher'), ['for' => 'subject']);
+echo html_writer::tag('label', 'What topic do you want to be tested on?', ['for' => 'subject']);
 echo html_writer::empty_tag('input', [
     'type' => 'text', 'name' => 'subject', 'id' => 'subject',
     'class' => 'form-control', 'required' => 'required',
-    'placeholder' => 'e.g. Photosynthesis',
+    'placeholder' => 'e.g. Photosynthesis, Python loops',
+]);
+echo html_writer::end_div();
+
+// Level Select
+echo html_writer::start_div('form-group mb-3');
+echo html_writer::tag('label', 'What is your current level?', ['for' => 'level']);
+echo html_writer::select([
+    'beginner' => 'Beginner (I am just starting)',
+    'intermediate' => 'Intermediate (I know the basics)',
+    'advanced' => 'Advanced (I want a challenge)'
+], 'level', 'beginner', false, ['id' => 'level', 'class' => 'form-control']);
+echo html_writer::end_div();
+
+// Goal Input
+echo html_writer::start_div('form-group mb-3');
+echo html_writer::tag('label', 'What is your goal for this session?', ['for' => 'goal']);
+echo html_writer::empty_tag('input', [
+    'type' => 'text', 'name' => 'goal', 'id' => 'goal',
+    'class' => 'form-control', 'required' => 'required',
+    'placeholder' => 'e.g. I have a test tomorrow and need to focus on definitions',
 ]);
 echo html_writer::end_div();
 
 echo html_writer::empty_tag('input', [
-    'type' => 'submit', 'value' => get_string('generate', 'local_autoteacher'), 'class' => 'btn btn-primary',
+    'type' => 'submit', 'value' => 'Generate My Custom Test', 'class' => 'btn btn-primary',
 ]);
 echo html_writer::end_tag('form');
 

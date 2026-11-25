@@ -3,24 +3,27 @@ defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->libdir . '/filelib.php');
 
-function local_autoteacher_generate_question(string $subject): array {
+function local_autoteacher_generate_test(string $subject, string $level, string $goal): array {
     $endpoint = trim((string) get_config('local_autoteacher', 'apiendpoint'));
     $model    = trim((string) get_config('local_autoteacher', 'model'));
     $apikey   = trim((string) get_config('local_autoteacher', 'apikey'));
 
     if ($endpoint === '' || $model === '') {
-        return local_autoteacher_fallback_question();
+        return local_autoteacher_fallback_test();
     }
 
-    $prompt = "You are a teacher. Write ONE multiple-choice question about the subject: \"{$subject}\".\n"
+    $prompt = "You are a teacher. A student wants a test on: \"{$subject}\".\n"
+        . "Their level is: \"{$level}\".\n"
+        . "Their goal is: \"{$goal}\".\n"
+        . "Write exactly 3 multiple-choice questions tailored to these needs.\n"
         . "Return ONLY valid JSON (no markdown, no code fences) in exactly this shape:\n"
-        . '{"question":"...","options":["a","b","c","d"],"correct_index":0,"explanation":"..."}' . "\n"
-        . "Rules: exactly 4 options, exactly one correct, correct_index is 0-3, explanation <= 2 sentences.";
+        . '{"questions":[{"question":"...","options":["a","b","c","d"],"correct_index":0,"explanation":"..."}, {"question":"...","options":["a","b","c","d"],"correct_index":1,"explanation":"..."}, {"question":"...","options":["a","b","c","d"],"correct_index":2,"explanation":"..."}]}' . "\n"
+        . "Rules: exactly 3 questions, exactly 4 options each, exactly one correct, correct_index is 0-3.";
 
     $payload = json_encode([
         'model'    => $model,
         'messages' => [
-            ['role' => 'system', 'content' => 'You reply with JSON only.'],
+            ['role' => 'system', 'content' => 'You reply with valid JSON only.'],
             ['role' => 'user',   'content' => $prompt],
         ],
     ]);
@@ -33,59 +36,43 @@ function local_autoteacher_generate_question(string $subject): array {
     try {
         $curl = new \curl();
         $curl->setHeader($headers);
-        $raw = $curl->post($endpoint, $payload, ['CURLOPT_TIMEOUT' => 30]);
+        $raw = $curl->post($endpoint, $payload, ['CURLOPT_TIMEOUT' => 45]);
         $info = $curl->get_info();
 
-        // DIAGNOSTIC MODE: Print the raw response if it's not a 200 OK.
         if (($info['http_code'] ?? 0) !== 200) {
-            $error_msg = 'Auto Teacher Debug: HTTP ' . ($info['http_code'] ?? '?') . ' | Raw Response: ' . $raw;
-            debugging($error_msg, DEBUG_DEVELOPER);
-            return local_autoteacher_fallback_question();
+            debugging('Auto Teacher: HTTP ' . ($info['http_code'] ?? '?') . ' | ' . $raw, DEBUG_DEVELOPER);
+            return local_autoteacher_fallback_test();
         }
 
         $decoded = json_decode($raw, true);
         $content = $decoded['choices'][0]['message']['content'] ?? '';
-        $parsed  = local_autoteacher_parse_ai_json($content);
-        return $parsed ?? local_autoteacher_fallback_question();
+        
+        // Clean up potential markdown from AI
+        $content = preg_replace('/^```(?:json)?\s*/i', '', $content);
+        $content = preg_replace('/\s*```$/', '', $content);
+        
+        $parsed = json_decode(trim($content), true);
+        
+        if (isset($parsed['questions']) && is_array($parsed['questions']) && count($parsed['questions']) === 3) {
+            return $parsed['questions'];
+        }
+        
+        return local_autoteacher_fallback_test();
     } catch (\Throwable $e) {
         debugging('Auto Teacher Exception: ' . $e->getMessage(), DEBUG_DEVELOPER);
-        return local_autoteacher_fallback_question();
+        return local_autoteacher_fallback_test();
     }
 }
 
-// Keep the rest of the functions identical to before
-function local_autoteacher_parse_ai_json(string $raw): ?array {
-    $raw = trim($raw);
-    $raw = preg_replace('/^```(?:json)?\s*/i', '', $raw);
-    $raw = preg_replace('/\s*```$/', '', $raw);
-
-    $data = json_decode($raw, true);
-    if (!is_array($data)) { return null; }
-    if (!isset($data['question'], $data['options'], $data['correct_index'])) { return null; }
-    if (!is_array($data['options']) || count($data['options']) < 2) { return null; }
-
-    $data['options'] = array_values(array_map('strval', $data['options']));
-    $idx = (int) $data['correct_index'];
-    if ($idx < 0 || $idx >= count($data['options'])) { return null; }
-
-    return [
-        'question'      => (string) $data['question'],
-        'options'       => $data['options'],
-        'correct_index' => $idx,
-        'explanation'   => (string) ($data['explanation'] ?? ''),
-    ];
-}
-
-function local_autoteacher_fallback_question(): array {
-    return [
-        'question'      => 'Demo mode: which option is correct?',
-        'options'       => [
-            'This is the correct answer (demo mode).',
-            'This is a distractor.',
-            'This is another distractor.',
-            'This is the last distractor.',
-        ],
-        'correct_index' => 0,
-        'explanation'   => 'Demo mode is active because the AI endpoint is not configured or the call failed.',
-    ];
+function local_autoteacher_fallback_test(): array {
+    $q = [];
+    for ($i = 1; $i <= 3; $i++) {
+        $q[] = [
+            'question'      => "Demo Question $i: Which option is correct?",
+            'options'       => ['Correct answer', 'Distractor 1', 'Distractor 2', 'Distractor 3'],
+            'correct_index' => 0,
+            'explanation'   => 'This is a demo explanation.',
+        ];
+    }
+    return $q;
 }
